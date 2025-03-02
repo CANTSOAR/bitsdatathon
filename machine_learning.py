@@ -1,39 +1,74 @@
 import yfinance as yf
+import pandas as pd
+from datetime import datetime
 
-def get_stock_data(ticker):
+def get_stock_data(ticker, start_date, end_date):
+    """Retrieves stock data from Yahoo Finance, including historical data."""
     try:
         stock = yf.Ticker(ticker)
+
+        # Retrieve general stock info
         info = stock.info
-        return info
+
+        # Calculate period from start and end dates
+        start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+        end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
+        delta = end_datetime - start_datetime
+        period_days = delta.days
+
+        # Retrieve historical data using the calculated period.
+        historical_data = stock.history(period=f"{period_days}d", start=start_date, end=end_date)
+
+        # Combine info and historical data into one dictionary
+        combined_data = {
+            "info": info,
+            "historical": historical_data
+        }
+
+        return combined_data
+
     except Exception as e:
         print(f"Error retrieving stock data: {e}")
         return None
-    
-def display_stock_data(stock_info):
-    if stock_info:
-        print(f"Stock Information for {stock_info.get('longName', 'N/A')} ({stock_info.get('symbol', 'N/A')}")
-        print("-" * 40)
 
-        print(f"Current Price: {stock_info.get('currentPrice', 'N/A')}")
-        print(f"Previous Close: {stock_info.get('previousClose', 'N/A')}")
-        print(f"Open: {stock_info.get('open', 'N/A')}")
-        print(f"Day High: {stock_info.get('dayHigh', 'N/A')}")
-        print(f"Day Low: {stock_info.get('dayLow', 'N/A')}")
-        print(f"Volume: {stock_info.get('volume', 'N/A')}")
+def display_stock_data(stock_data):
+    """Displays key stock data and historical data."""
+    if not stock_data:
+        return
 
-        print("\nKey Financials:")
-        print(f"Market Cap: {stock_info.get('marketCap', 'N/A')}")
-        print(f"P/E Ratio: {stock_info.get('trailingPE', 'N/A')}")
-        print(f"Dividend Yield: {stock_info.get('dividendYield', 'N/A')}")
+    info = stock_data["info"]
+    historical = stock_data["historical"]
 
-        print("\nCompany Information:")
-        print(f"Industry: {stock_info.get('industry', 'N/A')}")
-        print(f"Sector: {stock_info.get('sector', 'N/A')}")
-        print(f"Summary: {stock_info.get('longBusinessSummary', 'N/A')}")
+    print(f"Stock Information for {info.get('longName', 'N/A')} ({info.get('symbol', 'N/A')})")
+    print("-" * 40)
+
+    print(f"Current Price: {info.get('currentPrice', 'N/A')}")
+    print(f"Previous Close: {info.get('previousClose', 'N/A')}")
+    print(f"Open: {info.get('open', 'N/A')}")
+    print(f"Day High: {info.get('dayHigh', 'N/A')}")
+    print(f"Day Low: {info.get('dayLow', 'N/A')}")
+    print(f"Volume: {info.get('volume', 'N/A')}")
+
+    print("\nKey Financials:")
+    print(f"Market Cap: {info.get('marketCap', 'N/A')}")
+    print(f"P/E Ratio: {info.get('trailingPE', 'N/A')}")
+    print(f"Dividend Yield: {info.get('dividendYield', 'N/A')}")
+
+    print("\nCompany Information:")
+    print(f"Industry: {info.get('industry', 'N/A')}")
+    print(f"Sector: {info.get('sector', 'N/A')}")
+    print(f"Summary: {info.get('longBusinessSummary', 'N/A')}")
+
+    if not historical.empty:
+        print("\nHistorical Data:")
+        print(historical)  # Display the historical data (pandas DataFrame)
     else:
-        print("No stock data to display.")
-        
+        print("\nNo historical data available for the specified date range.")
+
 # User Input and Execution
 ticker = input("Enter a stock ticker: ")
-stock_data = get_stock_data(ticker)
+start_date = input("Enter the start date (YYYY-MM-DD): ")
+end_date = input("Enter the end date (YYYY-MM-DD): ")
+
+stock_data = get_stock_data(ticker, start_date, end_date)
 display_stock_data(stock_data)
