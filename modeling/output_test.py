@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 
 # ✅ MongoDB Connection
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
@@ -29,7 +28,6 @@ def get_stock_data(ticker, start_date, end_date):
 
 def embed_text(text):
     """Convert text into a 768-dimensional vector using Sentence Transformers."""
-    print("here")
     return embedding_model.encode(text).tolist()
 
 def search_mongodb_articles(ticker, start_date, end_date):
@@ -62,31 +60,44 @@ def vector_search_articles(query_text, top_k=5):
                             },
                             "as": "pair",
                             "in": {
-                                "$multiply": ["$$pair[0]", "$$pair[1]"]
+                                "$multiply": [
+                                    {"$arrayElemAt": ["$$pair", 0]},
+                                    {"$arrayElemAt": ["$$pair", 1]}
+                                ]
                             }
                         }
                     }
                 },
                 "query_norm": {
                     "$sqrt": {
-                        "$sum": {
-                            "$map": {
-                                "input": "$embedding",
-                                "as": "val",
-                                "in": { "$multiply": ["$$val", "$$val"] }
+                        "$max": [
+                            0.000001,  # Small epsilon to avoid zero
+                            {
+                                "$sum": {
+                                    "$map": {
+                                        "input": "$embedding",
+                                        "as": "val",
+                                        "in": { "$multiply": ["$$val", "$$val"] }
+                                    }
+                                }
                             }
-                        }
+                        ]
                     }
                 },
                 "embedding_norm": {
                     "$sqrt": {
-                        "$sum": {
-                            "$map": {
-                                "input": query_embedding,
-                                "as": "val",
-                                "in": { "$multiply": ["$$val", "$$val"] }
+                        "$max": [
+                            0.000001,  # Small epsilon to avoid zero
+                            {
+                                "$sum": {
+                                    "$map": {
+                                        "input": query_embedding,
+                                        "as": "val",
+                                        "in": { "$multiply": ["$$val", "$$val"] }
+                                    }
+                                }
                             }
-                        }
+                        ]
                     }
                 }
             }
@@ -94,7 +105,18 @@ def vector_search_articles(query_text, top_k=5):
         {
             "$addFields": {
                 "cosine_similarity": {
-                    "$divide": ["$dot_product", {"$multiply": ["$query_norm", "$embedding_norm"]}]
+                    "$cond": {
+                        "if": {
+                            "$or": [
+                                {"$eq": ["$query_norm", 0]},
+                                {"$eq": ["$embedding_norm", 0]}
+                            ]
+                        },
+                        "then": 0,  # Default to 0 similarity if either norm is zero
+                        "else": {
+                            "$divide": ["$dot_product", {"$multiply": ["$query_norm", "$embedding_norm"]}]
+                        }
+                    }
                 }
             }
         },
@@ -102,12 +124,12 @@ def vector_search_articles(query_text, top_k=5):
             "$sort": {"cosine_similarity": -1}
         },
         {
-            "$limit": 5  # Top 5 results
+            "$limit": top_k  # Top 5 results
         }
     ]
 
-    results = news_collection.aggregate(pipeline)
-    return similar_articles
+    results = list(news_collection.aggregate(pipeline))
+    return results
 
 def display_results(stock_data, articles):
     """Display stock data and relevant news articles."""
