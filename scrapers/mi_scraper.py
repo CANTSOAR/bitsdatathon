@@ -14,7 +14,7 @@ starting_date = dt.datetime(year = 2024, month = 6, day = 19)
 date = starting_date
 
 headers = {"User-Agent": "Mozilla/5.0"}
-
+counter = 0
 for x in range(4 * 365 + 200):
     date_string = date.strftime("%Y/%m/%d")
     print(date_string)
@@ -83,3 +83,7 @@ for x in range(4 * 365 + 200):
     print(f"{len(db_articles)} loaded")
 
     date = date - dt.timedelta(days=1)
+    counter += 1
+    if counter == 6:
+        date = date - dt.timedelta(days=1)
+        counter = 0
