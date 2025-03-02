@@ -39,7 +39,7 @@ while processed_count < total_articles:
                 {"$set": {"embedding": embedding}}
             ))
         else:
-            print(f"Embedding failed for article: {article['Title']}")
+            print(f"Embedding failed for article: {article['title']}")
 
     if bulk_operations:
         collection.bulk_write(bulk_operations)
