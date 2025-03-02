@@ -1,0 +1,1 @@
+pip install yfinance newsapi-python ollama pymongo scikit-learn pandas
