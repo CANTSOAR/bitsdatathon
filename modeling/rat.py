@@ -76,7 +76,7 @@ class RAT(nn.Module):
 
         return X, y
     
-    def format_data_combined(self, combined_data, input_length, output_length):
+    def format_data_combined(self, combined_data, input_length, output_length, stock_data):
         combined_data = torch.tensor(combined_data, dtype=torch.float32)
         
         num_samples = len(combined_data) - input_length - output_length + 1
