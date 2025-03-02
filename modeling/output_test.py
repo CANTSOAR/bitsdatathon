@@ -5,7 +5,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 
 # ✅ MongoDB Connection
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
@@ -28,7 +27,7 @@ def get_stock_data(ticker, start_date, end_date):
         return None
 
 def embed_text(text):
-    """Convert text into a 384-dimensional vector using Sentence Transformers."""
+    """Convert text into a 768-dimensional vector using Sentence Transformers."""
     return embedding_model.encode(text).tolist()
 
 def search_mongodb_articles(ticker, start_date, end_date):
@@ -47,36 +46,90 @@ def vector_search_articles(query_text, top_k=5):
     print(f"🔍 Generating embedding for query: {query_text}...")
     query_embedding = embed_text(query_text)  # Convert query to vector
 
-
-    print(f"@@@@@@@@@@@@@@@@@@{len(query_embedding)}@@@@@@@@@@@@@@@@@@@@")
-
-
     print("🔍 Fetching all articles with embeddings from MongoDB...")
-    all_articles = list(stock_collection.find({}, {"_id": 1, "title": 1, "body": 1, "embedding": 1}))
-    all_articles += list(news_collection.find({}, {"_id": 1, "title": 1, "body": 1, "embedding": 1}))
+    pipeline = [
+        {
+            "$addFields": {
+                "dot_product": {
+                    "$sum": {
+                        "$map": {
+                            "input": {
+                                "$zip": {
+                                    "inputs": ["$embedding", query_embedding]
+                                }
+                            },
+                            "as": "pair",
+                            "in": {
+                                "$multiply": [
+                                    {"$arrayElemAt": ["$$pair", 0]},
+                                    {"$arrayElemAt": ["$$pair", 1]}
+                                ]
+                            }
+                        }
+                    }
+                },
+                "query_norm": {
+                    "$sqrt": {
+                        "$max": [
+                            0.000001,  # Small epsilon to avoid zero
+                            {
+                                "$sum": {
+                                    "$map": {
+                                        "input": "$embedding",
+                                        "as": "val",
+                                        "in": { "$multiply": ["$$val", "$$val"] }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                },
+                "embedding_norm": {
+                    "$sqrt": {
+                        "$max": [
+                            0.000001,  # Small epsilon to avoid zero
+                            {
+                                "$sum": {
+                                    "$map": {
+                                        "input": query_embedding,
+                                        "as": "val",
+                                        "in": { "$multiply": ["$$val", "$$val"] }
+                                    }
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
+        },
+        {
+            "$addFields": {
+                "cosine_similarity": {
+                    "$cond": {
+                        "if": {
+                            "$or": [
+                                {"$eq": ["$query_norm", 0]},
+                                {"$eq": ["$embedding_norm", 0]}
+                            ]
+                        },
+                        "then": 0,  # Default to 0 similarity if either norm is zero
+                        "else": {
+                            "$divide": ["$dot_product", {"$multiply": ["$query_norm", "$embedding_norm"]}]
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "$sort": {"cosine_similarity": -1}
+        },
+        {
+            "$limit": top_k  # Top 5 results
+        }
+    ]
 
-    print(f"✅ Retrieved {len(all_articles)} total articles.")
-
-    # ✅ Ensure embeddings are correctly formatted
-    valid_articles = [article for article in all_articles if "embedding" in article and len(article["embedding"]) == 384]
-    
-    if not valid_articles:
-        print("⚠️ No valid articles with 384-dim embeddings found!")
-        return []
-
-    print(f"✅ {len(valid_articles)} articles have correct embeddings.")
-
-    # Extract embeddings & compute similarity
-    embeddings = np.array([article["embedding"] for article in valid_articles])
-    query_vector = np.array(query_embedding).reshape(1, -1)
-    similarities = cosine_similarity(query_vector, embeddings)[0]
-
-    # ✅ Sort results by similarity
-    sorted_indices = np.argsort(similarities)[::-1][:top_k]
-    similar_articles = [valid_articles[i] for i in sorted_indices]
-
-    print(f"✅ Found {len(similar_articles)} similar articles using vector search.")
-    return similar_articles
+    results = list(news_collection.aggregate(pipeline))
+    return results
 
 def display_results(stock_data, articles):
     """Display stock data and relevant news articles."""
@@ -88,7 +141,7 @@ def display_results(stock_data, articles):
 
     print("\n📰 Related News Articles:")
     if articles:
-        for article in articles[:5]:  # Show top 5 articles
+        for article in articles[-5:]:  # Show top 5 articles
             print(f"- {article['title']} ({article.get('time', 'N/A')})")
             print(f"  {article['body'][:200]}...")  # Show first 200 characters
             print("-" * 40)

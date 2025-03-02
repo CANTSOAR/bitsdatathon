@@ -2,34 +2,20 @@ import pymongo
 import ollama
 import numpy as np
 from pymongo import UpdateOne
-import ssl
+from sentence_transformers import SentenceTransformer
 
 # MongoDB Connection
 client = pymongo.MongoClient("mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main", tlsAllowInvalidCertificates=True)
 db = client["stocks_db"]
 collection = db["mi_data"]
 
-def get_embedding(text, model_name="nomic-embed-text"):
-    """Generates an embedding for the given text using Ollama."""
-    try:
-        # Generate embeddings
-        response = ollama.embeddings(model=model_name, prompt=text)
-        
-        # The response format may vary, so let's check what we got
-        if "embedding" in response:
-            return response["embedding"]
-        else:
-            # For debugging
-            print(f"Unexpected response format: {type(response)}")
-            print(f"Response content: {response}")
-            return None
-    except Exception as e:
-        print(f"Error generating embedding: {e}")
-        return None
+embedding_model = SentenceTransformer("ProsusAI/finbert")
 
+def embed_text(text):
+    return embedding_model.encode(text).tolist()
 
-BATCH_SIZE = 100
-total_articles = collection.count_documents({})
+BATCH_SIZE = 1
+total_articles = 10#collection.count_documents({})
 processed_count = 0
 
 print(f"Starting to process {total_articles} articles in batches of {BATCH_SIZE}...")
@@ -50,7 +36,7 @@ while processed_count < total_articles:
             print(f"No text found for article: {article.get('title', 'No title')}")
             continue
             
-        embedding = get_embedding(text)
+        embedding = embed_text(text)
 
         if embedding:
             bulk_operations.append(UpdateOne(
