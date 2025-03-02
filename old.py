@@ -3,35 +3,26 @@ from bs4 import BeautifulSoup
 from pymongo import MongoClient
 import datetime as dt
 import re
-import time
 
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
 client = MongoClient(uri, tlsAllowInvalidCertificates=True)
 db = client["stocks_db"]
 collection = db["mi_data"]
 
-starting_date = dt.datetime(year = 2024, month = 3, day = 24)
+starting_date = dt.datetime(year = 2024, month = 7, day = 26)
 date = starting_date
 
 headers = {"User-Agent": "Mozilla/5.0"}
 
-for x in range(4 * 52 + 20):
+for x in range(5 * 365 + 37):
     date_string = date.strftime("%Y/%m/%d")
     print(date_string)
     mi_url = f"https://markets.businessinsider.com/news/archive/{date_string}"
 
-    retries = 5
-    while retries:
-        try:
-            response = requests.get(mi_url, headers = headers)
-            soup = BeautifulSoup(response.text, "html.parser")
-            container = soup.find("div", class_="box")
-            articles = container.find_all("a")
-            break
-        except:
-            print(f"retrying... {retries - 1} retries left")
-            time.sleep(1)
-            retries -= 1
+    response = requests.get(mi_url, headers = headers)
+    soup = BeautifulSoup(response.text, "html.parser")
+    container = soup.find("div", class_="box")
+    articles = container.find_all("a")
 
     db_articles = []
     for article in articles:
@@ -82,4 +73,4 @@ for x in range(4 * 52 + 20):
     collection.insert_many(db_articles)
     print(f"{len(db_articles)} loaded")
 
-    date = date - dt.timedelta(days=7)
+    date = date - dt.timedelta(days=1)
