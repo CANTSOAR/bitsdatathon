@@ -26,7 +26,7 @@ class RAT(nn.Module):
 
         super(RAT, self).__init__()
         self.embedding = nn.Linear(input_dim, embed_dim)
-        self.article_projection = torch.nn.Linear(768, embed_dim)
+        self.article_projection = nn.Linear(768, embed_dim)
         self.transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads),
             num_layers=num_layers
@@ -36,22 +36,26 @@ class RAT(nn.Module):
         self.decoder = nn.GRU(embed_dim, embed_dim, batch_first=True)
         self.fc = nn.Linear(embed_dim, output_dim)
 
-        cursor = collection.find({})  # Project only the embedding field
+        """cursor = collection.find({}, {"embedding": 1})  # Project only the embedding field
 
         embeddings = []
+        counter = 0
+        count = collection.count_documents({})
         for doc in cursor:
+            if not counter % 1000: print(f"loaded {counter}/{count}")
             embeddings.append(doc['embedding'])
+            counter += 1
 
         # Convert to numpy array and then to a PyTorch tensor
-        self.embed_db = np.array(embeddings)
+        self.embed_db = np.array(embeddings)"""
 
     def forward(self, x):
         # Encoder
         x1 = self.embedding(x)  # [batch_size, seq_len, embed_dim]
         #article_embeds = self.query_fast("", "", self.stock)
-        article_embeds = self.saved_embeds
-        x2 = self.article_projection(article_embeds)
-        x2 = x2.unsqueeze(0).expand(x1.shape[0], -1, -1)
+        #x2 = self.article_projection(article_embeds)
+        #x2 = x2.unsqueeze(0).expand(x1.shape[0], -1, -1)
+        x2 = self.saved_x2[:x1.shape[0]]
 
         x = torch.cat([x1, x2], dim=1)
         encoded = self.transformer(x)  # [batch_size, seq_len, embed_dim]
@@ -91,7 +95,8 @@ class RAT(nn.Module):
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
 
-        article_embeddings = self.query_articles("", "", self.stock_data)
+        self.query_articles("", "", self.stock_data)
+        self.saved_x2 = self.saved_x2.unsqueeze(0).expand(batch_size, -1, -1)
 
         criterion = nn.MSELoss()
         optimizer = AdamW(self.parameters(), lr=0.005, weight_decay=0.01)
@@ -116,7 +121,7 @@ class RAT(nn.Module):
                     output = output.view(y_batch.shape)
                     
                 loss = criterion(output, y_batch)
-                loss.backward()
+                loss.backward(retain_graph=True)
                 
                 # Clip gradients
                 torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
@@ -193,6 +198,8 @@ class RAT(nn.Module):
         if len(new_data) >= self.input_length:
             #model_input = new_data[-self.input_length:].unsqueeze(0)  # Add batch dimension
             model_input = new_data
+            self.query_articles("", "", self.stock_data)
+            self.saved_x2 = self.saved_x2.unsqueeze(0).expand(len(model_input), -1, -1)
             
             with torch.no_grad():
                 output = self(model_input)  # [1, output_length, output_dim]
@@ -264,8 +271,10 @@ class RAT(nn.Module):
         cos_sim = cosine_similarity(query_embedding.reshape(1, -1), self.embed_db)
 
         # Get the indices of the top k most similar articles
-        k = 5
-        top_k_indices = np.argsort(cos_sim[0])[::-1][:k]
+        top_k_indices = np.argsort(cos_sim[0])[::-1][:top_k]
+
+        self.saved_embeds = torch.tensor(self.embed_db[top_k_indices], dtype=torch.float32)
+        self.saved_x2 = self.article_projection(self.saved_embeds)
 
         return torch.tensor(self.embed_db[top_k_indices], dtype=torch.float32)
 
@@ -356,13 +365,14 @@ class RAT(nn.Module):
         results = list(collection.aggregate(pipeline))
         embeddings = [doc['embedding'] for doc in results]
         self.saved_embeds = torch.tensor(embeddings)
+        self.saved_x2 = self.article_projection(self.saved_embeds)
         return torch.tensor(embeddings)
     
-    def get_data(self, stock):
-        micro_data = self.get_stock_micro_data([stock])
+    def get_data(self, stock, start_date, end_date):
+        micro_data = self.get_stock_micro_data([stock], start_date, end_date)
         return self.add_stock_macro_data(micro_data, stock)
         
-    def get_stock_micro_data(self, list_stocks) -> pd.DataFrame:
+    def get_stock_micro_data(self, list_stocks, start_date, end_date) -> pd.DataFrame:
         """Given the stocks to query, return a dataframe of combined historical and financial data
         
         Args:
@@ -418,7 +428,7 @@ class RAT(nn.Module):
         for str_stock in list_stocks:
             ticker = yf.Ticker(str_stock)
 
-            series_history = ticker.history(period = "max")[["Close", "Volume"]]
+            series_history = ticker.history(start = start_date, end = end_date)[["Close", "Volume"]]
             series_history.columns = ["Close", "Volume"]
 
             df_income_statement = ticker.financials.rename(index = dict_income_statement_catcher).loc[list_income_statement_metrics]
