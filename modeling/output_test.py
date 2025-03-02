@@ -21,7 +21,8 @@ def get_stock_data(ticker, start_date, end_date):
     try:
         stock = yf.Ticker(ticker)
         historical_data = stock.history(start=start_date, end=end_date)
-        return historical_data
+        summary = stock.info.get("longBusinessSummary")
+        return historical_data, summary
     except Exception as e:
         print(f"Error retrieving stock data: {e}")
         return None
@@ -149,17 +150,18 @@ def display_results(stock_data, articles):
         print("⚠️ No relevant articles found.")
 
 # ✅ User Inputs
-ticker = input("Enter a stock ticker: ").strip().upper()
-start_date = input("Enter the start date (YYYY-MM-DD): ").strip()
-end_date = input("Enter the end date (YYYY-MM-DD): ").strip()
+ticker = "AAPL"#input("Enter a stock ticker: ").strip().upper()
+start_date = "2025-01-01"#input("Enter the start date (YYYY-MM-DD): ").strip()
+end_date = "2025-03-01"#input("Enter the end date (YYYY-MM-DD): ").strip()
 
 # ✅ Fetch stock data
-stock_data = get_stock_data(ticker, start_date, end_date)
+stock_data, summary = get_stock_data(ticker, start_date, end_date)
 
 # ✅ Search news using MongoDB query + Local Vector Search
-articles_mongo = search_mongodb_articles(ticker, start_date, end_date)
-articles_vector = vector_search_articles(f"News about {ticker} stock performance")
+#articles_mongo = search_mongodb_articles(ticker, start_date, end_date)
+print(summary)
+articles_vector = vector_search_articles(f"{ticker} {summary}")
 
 # ✅ Merge & Display Results
-all_articles = articles_mongo + articles_vector
+all_articles =  articles_vector
 display_results(stock_data, all_articles)

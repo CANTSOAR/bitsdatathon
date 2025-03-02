@@ -9,11 +9,14 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics.pairwise import cosine_similarity
 
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
 client = MongoClient(uri)
 db = client["stocks_db"]
 collection = db["mi_data"]
+
+embedding_model = SentenceTransformer("ProsusAI/finbert")
 
 #Retrieval Augmented Transformer
 class RAT(nn.Module):
@@ -23,6 +26,7 @@ class RAT(nn.Module):
 
         super(RAT, self).__init__()
         self.embedding = nn.Linear(input_dim, embed_dim)
+        self.article_projection = torch.nn.Linear(768, embed_dim)
         self.transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads),
             num_layers=num_layers
@@ -32,9 +36,24 @@ class RAT(nn.Module):
         self.decoder = nn.GRU(embed_dim, embed_dim, batch_first=True)
         self.fc = nn.Linear(embed_dim, output_dim)
 
+        cursor = collection.find({})  # Project only the embedding field
+
+        embeddings = []
+        for doc in cursor:
+            embeddings.append(doc['embedding'])
+
+        # Convert to numpy array and then to a PyTorch tensor
+        self.embed_db = np.array(embeddings)
+
     def forward(self, x):
         # Encoder
-        x = self.embedding(x)  # [batch_size, seq_len, embed_dim]
+        x1 = self.embedding(x)  # [batch_size, seq_len, embed_dim]
+        #article_embeds = self.query_fast("", "", self.stock)
+        article_embeds = self.saved_embeds
+        x2 = self.article_projection(article_embeds)
+        x2 = x2.unsqueeze(0).expand(x1.shape[0], -1, -1)
+
+        x = torch.cat([x1, x2], dim=1)
         encoded = self.transformer(x)  # [batch_size, seq_len, embed_dim]
         
         # Get context vector (last hidden state)
@@ -71,6 +90,8 @@ class RAT(nn.Module):
         
         train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
+
+        article_embeddings = self.query_articles("", "", self.stock_data)
 
         criterion = nn.MSELoss()
         optimizer = AdamW(self.parameters(), lr=0.005, weight_decay=0.01)
@@ -150,7 +171,7 @@ class RAT(nn.Module):
 
     def predict(self, new_data):
         # Scale new data using stored scalers
-        new_data_np = new_data.numpy() if isinstance(new_data, torch.Tensor) else np.array(new_data)
+        """new_data_np = new_data.numpy() if isinstance(new_data, torch.Tensor) else np.array(new_data)
         scaled_new_data = np.zeros_like(new_data_np)
         
         # Assuming first columns are stock data and rest are financial
@@ -166,11 +187,12 @@ class RAT(nn.Module):
                 scaled_new_data[:, i] = self.financial_scalers[fin_idx].transform(col_data).flatten()
         
         # Convert to tensor and make prediction
-        tensor_data = torch.tensor(scaled_new_data, dtype=torch.float32)
+        tensor_data = torch.tensor(scaled_new_data, dtype=torch.float32)"""
         
         # Format for model input (assuming we need a sequence of input_length)
-        if len(tensor_data) >= self.input_length:
-            model_input = tensor_data[-self.input_length:].unsqueeze(0)  # Add batch dimension
+        if len(new_data) >= self.input_length:
+            #model_input = new_data[-self.input_length:].unsqueeze(0)  # Add batch dimension
+            model_input = new_data
             
             with torch.no_grad():
                 output = self(model_input)  # [1, output_length, output_dim]
@@ -187,9 +209,11 @@ class RAT(nn.Module):
             
             return torch.tensor(unscaled_output)
         else:
-            raise ValueError(f"Input data must have at least {input_length} time steps")
+            raise ValueError(f"Input data must have at least {self.input_length} time steps")
 
     def format_data_separate(self, stock_data, financial_data, input_length, output_length):
+        self.stock_data = stock_data
+
         self.stock_scalers = []
         self.financial_scalers = []
         
@@ -234,9 +258,19 @@ class RAT(nn.Module):
     def format_data_combined(self, combined_data, input_length, output_length):
         return self.format_data_separate(combined_data[:, :-2], combined_data[:, -2:], input_length, output_length)
 
-    def query_articles(self, X, I, top_k = 5):
-        embedding_model = SentenceTransformer("ProsusAI/finbert")
-        query_embedding = embedding_model.encode(f"Stock News About {I["stock"]}").tolist()
+    def query_fast(self, X, I, stock_name, top_k = 5):
+        query_embedding = embedding_model.encode(f"Stock News About {stock_name}")
+
+        cos_sim = cosine_similarity(query_embedding.reshape(1, -1), self.embed_db)
+
+        # Get the indices of the top k most similar articles
+        k = 5
+        top_k_indices = np.argsort(cos_sim[0])[::-1][:k]
+
+        return torch.tensor(self.embed_db[top_k_indices], dtype=torch.float32)
+
+    def query_articles(self, X, I, stock_name, top_k = 5):
+        query_embedding = embedding_model.encode(f"Stock News About {stock_name}").tolist()
 
         pipeline = [
             {
@@ -320,7 +354,9 @@ class RAT(nn.Module):
         ]
 
         results = list(collection.aggregate(pipeline))
-        return results
+        embeddings = [doc['embedding'] for doc in results]
+        self.saved_embeds = torch.tensor(embeddings)
+        return torch.tensor(embeddings)
     
     def get_data(self, stock):
         micro_data = self.get_stock_micro_data([stock])
@@ -400,6 +436,7 @@ class RAT(nn.Module):
         return pd.concat(list_stock_data, axis = 1, keys = list_stocks).dropna()
     
     def add_stock_macro_data(self, micro_data, stock):
+        self.stock = stock
         micro_data.columns = micro_data[stock].columns
 
         macro_data = pd.read_csv("/Users/dipalshah/Desktop/bitsdatathon/data/macro_data.csv", index_col="Date", parse_dates=True)
