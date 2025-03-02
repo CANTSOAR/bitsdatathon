@@ -1,6 +1,7 @@
 import yfinance as yf
 import pandas as pd
 from datetime import datetime
+import predict_stock  # Import predict_stock.py
 
 def get_stock_data(ticker, start_date, end_date):
     """Retrieves stock data from Yahoo Finance, including historical data."""
@@ -72,3 +73,8 @@ end_date = input("Enter the end date (YYYY-MM-DD): ")
 
 stock_data = get_stock_data(ticker, start_date, end_date)
 display_stock_data(stock_data)
+
+# Call the prediction function from predict_stock.py
+prediction, stock_data_pred, articles_pred = predict_stock.make_prediction(ticker, start_date, end_date)
+print(f"\n📈 Prediction for {ticker}: {prediction}")
+predict_stock.display_results(stock_data_pred, articles_pred) #display results

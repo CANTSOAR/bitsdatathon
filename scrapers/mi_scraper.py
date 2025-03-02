@@ -15,7 +15,7 @@ date = starting_date
 
 headers = {"User-Agent": "Mozilla/5.0"}
 counter = 0
-for x in range(4 * 52 + 20):
+for x in range(4 * 365 + 200):
     date_string = date.strftime("%Y/%m/%d")
     print(date_string)
     mi_url = f"https://markets.businessinsider.com/news/archive/{date_string}"
