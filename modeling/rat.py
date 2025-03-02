@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+from sentence_transformers import SentenceTransformer
 
 #Retrieval Augmented Transformer
 class RAT(nn.Module):
@@ -61,11 +62,93 @@ class RAT(nn.Module):
 
         return X, y
 
-    def search_query(self, X, I):
-        return "one article vector"
+    def query_articles(self, X, I):
+        embedding_model = SentenceTransformer("ProsusAI/finbert")
+        query_embedding = embedding_model.encode(f"Stock News About {I["stock"]}").tolist()
 
-    def queried_articles(self, query):
-        return "list of article vectors"
+        pipeline = [
+            {
+                "$addFields": {
+                    "dot_product": {
+                        "$sum": {
+                            "$map": {
+                                "input": {
+                                    "$zip": {
+                                        "inputs": ["$embedding", query_embedding]
+                                    }
+                                },
+                                "as": "pair",
+                                "in": {
+                                    "$multiply": [
+                                        {"$arrayElemAt": ["$$pair", 0]},
+                                        {"$arrayElemAt": ["$$pair", 1]}
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "query_norm": {
+                        "$sqrt": {
+                            "$max": [
+                                0.000001,  # Small epsilon to avoid zero
+                                {
+                                    "$sum": {
+                                        "$map": {
+                                            "input": "$embedding",
+                                            "as": "val",
+                                            "in": { "$multiply": ["$$val", "$$val"] }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "embedding_norm": {
+                        "$sqrt": {
+                            "$max": [
+                                0.000001,  # Small epsilon to avoid zero
+                                {
+                                    "$sum": {
+                                        "$map": {
+                                            "input": query_embedding,
+                                            "as": "val",
+                                            "in": { "$multiply": ["$$val", "$$val"] }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            {
+                "$addFields": {
+                    "cosine_similarity": {
+                        "$cond": {
+                            "if": {
+                                "$or": [
+                                    {"$eq": ["$query_norm", 0]},
+                                    {"$eq": ["$embedding_norm", 0]}
+                                ]
+                            },
+                            "then": 0,  # Default to 0 similarity if either norm is zero
+                            "else": {
+                                "$divide": ["$dot_product", {"$multiply": ["$query_norm", "$embedding_norm"]}]
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "$sort": {"cosine_similarity": -1}
+            },
+            {
+                "$limit": top_k  # Top 5 results
+            }
+        ]
+
+        results = list(news_collection.aggregate(pipeline))
+        return results
 
 """N days x k features + I(nformation)
 
