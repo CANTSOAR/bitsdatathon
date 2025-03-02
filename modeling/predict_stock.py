@@ -15,6 +15,7 @@ db = client["stocks_db"]
 stock_collection = db["stock_data"]
 news_collection = db["mi_data"]
 
+
 # Load Embedding Model
 embedding_model = SentenceTransformer("ProsusAI/finbert")
 
@@ -69,16 +70,39 @@ def calculate_sentiment(articles):
 
 def prepare_features(stock_data, articles):
     """Prepare features for the SVM model."""
-    if stock_data is None or stock_data.empty:
+    if not stock_data or not stock_data["historical"] or stock_data["historical"].empty:
         return None
 
-    # Technical Indicators (Example)
-    stock_data['SMA_20'] = stock_data['Close'].rolling(window=20).mean()
-    stock_data['Sentiment'] = calculate_sentiment(articles)
+    historical = stock_data["historical"].copy() #copy to avoid modifying the original.
+    info = stock_data["info"]
 
-    # Prepare features
-    features = stock_data[['Close', 'SMA_20', 'Sentiment']].dropna()
+    # Technical Indicators
+    historical['SMA_20'] = historical['Close'].rolling(window=20).mean()
+    historical['RSI'] = calculate_rsi(historical['Close']) #needs a calculate_rsi function.
+    historical['Volume_Lag1'] = historical['Volume'].shift(1)
+
+    # Features from 'info'
+    historical['MarketCap'] = info.get('marketCap', np.nan)
+    historical['PE_Ratio'] = info.get('trailingPE', np.nan)
+
+    # Sentiment from Articles
+    historical['Sentiment'] = calculate_sentiment(articles)
+
+    # Drop NaN values
+    features = historical.dropna()
+
     return features
+
+def calculate_rsi(series, period=14):
+    delta = series.diff()
+    up, down = delta.copy(), delta.copy()
+    up[up < 0] = 0
+    down[down > 0] = 0
+    roll_up1 = up.ewm(span=period).mean()
+    roll_down1 = down.abs().ewm(span=period).mean()
+    RS = roll_up1 / roll_down1
+    RSI = 100.0 - (100.0 / (1.0 + RS))
+    return RSI
 
 def predict_buy_sell(features):
     """Predict buy/sell signal using the SVM model."""
