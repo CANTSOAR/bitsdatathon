@@ -15,7 +15,7 @@ stock_collection = db["stock_data"]  # Historical news collection
 news_collection = db["mi_data"]  # Recent news collection
 
 # ✅ Load Embedding Model
-embedding_model = SentenceTransformer("ProsusAI/finbert")
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 def get_stock_data(ticker, start_date, end_date):
     """Retrieve historical stock data from Yahoo Finance."""
@@ -29,6 +29,7 @@ def get_stock_data(ticker, start_date, end_date):
 
 def embed_text(text):
     """Convert text into a 384-dimensional vector using Sentence Transformers."""
+    print("here")
     return embedding_model.encode(text).tolist()
 
 def search_mongodb_articles(ticker, start_date, end_date):
@@ -46,10 +47,6 @@ def vector_search_articles(query_text, top_k=5):
     """Perform vector search for articles using MongoDB."""
     print(f"🔍 Generating embedding for query: {query_text}...")
     query_embedding = embed_text(query_text)  # Convert query to vector
-
-
-    print(f"@@@@@@@@@@@@@@@@@@{len(query_embedding)}@@@@@@@@@@@@@@@@@@@@")
-
 
     print("🔍 Fetching all articles with embeddings from MongoDB...")
     all_articles = list(stock_collection.find({}, {"_id": 1, "title": 1, "body": 1, "embedding": 1}))
