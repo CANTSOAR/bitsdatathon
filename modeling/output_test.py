@@ -15,7 +15,7 @@ stock_collection = db["stock_data"]  # Historical news collection
 news_collection = db["mi_data"]  # Recent news collection
 
 # ✅ Load Embedding Model
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embedding_model = SentenceTransformer("ProsusAI/finbert")
 
 def get_stock_data(ticker, start_date, end_date):
     """Retrieve historical stock data from Yahoo Finance."""
@@ -28,7 +28,7 @@ def get_stock_data(ticker, start_date, end_date):
         return None
 
 def embed_text(text):
-    """Convert text into a 384-dimensional vector using Sentence Transformers."""
+    """Convert text into a 768-dimensional vector using Sentence Transformers."""
     print("here")
     return embedding_model.encode(text).tolist()
 
@@ -49,30 +49,64 @@ def vector_search_articles(query_text, top_k=5):
     query_embedding = embed_text(query_text)  # Convert query to vector
 
     print("🔍 Fetching all articles with embeddings from MongoDB...")
-    all_articles = list(stock_collection.find({}, {"_id": 1, "title": 1, "body": 1, "embedding": 1}))
-    all_articles += list(news_collection.find({}, {"_id": 1, "title": 1, "body": 1, "embedding": 1}))
+    pipeline = [
+        {
+            "$addFields": {
+                "dot_product": {
+                    "$sum": {
+                        "$map": {
+                            "input": {
+                                "$zip": {
+                                    "inputs": ["$embedding", query_embedding]
+                                }
+                            },
+                            "as": "pair",
+                            "in": {
+                                "$multiply": ["$$pair[0]", "$$pair[1]"]
+                            }
+                        }
+                    }
+                },
+                "query_norm": {
+                    "$sqrt": {
+                        "$sum": {
+                            "$map": {
+                                "input": "$embedding",
+                                "as": "val",
+                                "in": { "$multiply": ["$$val", "$$val"] }
+                            }
+                        }
+                    }
+                },
+                "embedding_norm": {
+                    "$sqrt": {
+                        "$sum": {
+                            "$map": {
+                                "input": query_embedding,
+                                "as": "val",
+                                "in": { "$multiply": ["$$val", "$$val"] }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        {
+            "$addFields": {
+                "cosine_similarity": {
+                    "$divide": ["$dot_product", {"$multiply": ["$query_norm", "$embedding_norm"]}]
+                }
+            }
+        },
+        {
+            "$sort": {"cosine_similarity": -1}
+        },
+        {
+            "$limit": 5  # Top 5 results
+        }
+    ]
 
-    print(f"✅ Retrieved {len(all_articles)} total articles.")
-
-    # ✅ Ensure embeddings are correctly formatted
-    valid_articles = [article for article in all_articles if "embedding" in article and len(article["embedding"]) == 384]
-    
-    if not valid_articles:
-        print("⚠️ No valid articles with 384-dim embeddings found!")
-        return []
-
-    print(f"✅ {len(valid_articles)} articles have correct embeddings.")
-
-    # Extract embeddings & compute similarity
-    embeddings = np.array([article["embedding"] for article in valid_articles])
-    query_vector = np.array(query_embedding).reshape(1, -1)
-    similarities = cosine_similarity(query_vector, embeddings)[0]
-
-    # ✅ Sort results by similarity
-    sorted_indices = np.argsort(similarities)[::-1][:top_k]
-    similar_articles = [valid_articles[i] for i in sorted_indices]
-
-    print(f"✅ Found {len(similar_articles)} similar articles using vector search.")
+    results = news_collection.aggregate(pipeline)
     return similar_articles
 
 def display_results(stock_data, articles):
@@ -85,7 +119,7 @@ def display_results(stock_data, articles):
 
     print("\n📰 Related News Articles:")
     if articles:
-        for article in articles[:5]:  # Show top 5 articles
+        for article in articles[-5:]:  # Show top 5 articles
             print(f"- {article['title']} ({article.get('time', 'N/A')})")
             print(f"  {article['body'][:200]}...")  # Show first 200 characters
             print("-" * 40)

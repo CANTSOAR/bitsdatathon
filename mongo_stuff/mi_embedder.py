@@ -9,7 +9,7 @@ client = pymongo.MongoClient("mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.m
 db = client["stocks_db"]
 collection = db["mi_data"]
 
-embedding_model = SentenceTransformer('yiyanghkust/finbert')
+embedding_model = SentenceTransformer("ProsusAI/finbert")
 
 def embed_text(text):
     return embedding_model.encode(text).tolist()
