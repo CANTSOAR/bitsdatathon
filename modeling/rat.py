@@ -92,7 +92,7 @@ class RAT(nn.Module):
         train_dataset = TensorDataset(train_X, train_y)
         val_dataset = TensorDataset(val_X, val_y)
         
-        train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=batch_size)
         val_dataloader = DataLoader(val_dataset, batch_size=batch_size)
 
         self.query_articles("", "", self.stock_data)
@@ -160,7 +160,7 @@ class RAT(nn.Module):
                 wait = 0
                 # Save best model
                 best_model = {k: v.cpu().detach().clone() for k, v in self.state_dict().items()}
-            else:
+            elif avg_val_loss > best_val_loss * 1.2:
                 wait += 1
                 if wait >= patience:
                     print(f"Early stopping at epoch {epoch+1}")
@@ -278,7 +278,7 @@ class RAT(nn.Module):
 
         return torch.tensor(self.embed_db[top_k_indices], dtype=torch.float32)
 
-    def query_articles(self, X, I, stock_name, top_k = 5):
+    def query_articles(self, X, I, stock_name, top_k = 5, show = False):
         query_embedding = embedding_model.encode(f"Stock News About {stock_name}").tolist()
 
         pipeline = [
@@ -366,6 +366,16 @@ class RAT(nn.Module):
         embeddings = [doc['embedding'] for doc in results]
         self.saved_embeds = torch.tensor(embeddings)
         self.saved_x2 = self.article_projection(self.saved_embeds)
+
+        if show:
+            string = ""
+            for article in results:
+                string += f"Title:\n      {article["title"]}\n\n"
+                string += f"Body:\n      {article["body"][:200]}\n\n"
+                string += "------------------------------------------------------------------\n"
+
+            return string
+
         return torch.tensor(embeddings)
     
     def get_data(self, stock, start_date, end_date):
@@ -449,7 +459,7 @@ class RAT(nn.Module):
         self.stock = stock
         micro_data.columns = micro_data[stock].columns
 
-        macro_data = pd.read_csv("/Users/dipalshah/Desktop/bitsdatathon/data/macro_data.csv", index_col="Date", parse_dates=True)
+        macro_data = pd.read_csv("/Users/mohitunecha/bitsdatathon/data/macro_data.csv", index_col="Date", parse_dates=True)
         micro_data.index = pd.to_datetime(micro_data.index)
         macro_data.index = pd.to_datetime(macro_data.index)
 
