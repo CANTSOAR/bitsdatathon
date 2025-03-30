@@ -17,7 +17,7 @@ db = client["stocks_db"]
 collection = db["mi_data"]
 
 embedding_model = SentenceTransformer("ProsusAI/finbert")
-
+    
 #Retrieval Augmented Transformer
 class RAT(nn.Module):
     def __init__(self, input_dim, embed_dim, num_heads, num_layers, output_dim):
