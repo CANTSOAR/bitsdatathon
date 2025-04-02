@@ -51,9 +51,15 @@ def vector_search(query_vector, top_k=2):
 
 def vectorize_search(search_term):
     model = SentenceTransformer("ProsusAI/finbert")
-    model.encode(search_term)
+    vector = model.encode(search_term, convert_to_numpy=True, show_progress_bar=False)
+
+    return vector.tolist()
 
 if __name__ == "__main__":
     if check_vector_index():
         test_vector = np.random.rand(768).tolist()  # Adjust size to match your vector dimension
         vector_search(test_vector)
+
+        test = input("gimme something")
+        vector = vectorize_search(test)
+        vector_search(vector)

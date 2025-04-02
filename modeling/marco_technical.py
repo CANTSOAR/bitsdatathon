@@ -42,11 +42,19 @@ def fetch_etf_data(tickers, start_date, end_date):
 
     # Rename columns to be consistent
     etf_data.rename(columns={
-        "IEF": "IEF_Close", "LQD": "LQD_Close", "QQQ": "QQQ_Close",
-        "SPY": "SPY_Close", "SPYG": "SPYG_Close", "SPYV": "SPYV_Close",
-        "TLT": "TLT_Close", "^VIX": "VIX_Close",
-        "XLE": "XLE_Close", "XLF": "XLF_Close", "XLK": "XLK_Close",
-        "XLV": "XLV_Close", "XLY": "XLY_Close"
+        "IEF": "IEF_Close", 
+        "LQD": "LQD_Close", 
+        "QQQ": "QQQ_Close",
+        "SPY": "SPY_Close", 
+        "SPYG": "SPYG_Close", 
+        "SPYV": "SPYV_Close",
+        "TLT": "TLT_Close", 
+        "^VIX": "VIX_Close",
+        "XLE": "XLE_Close", 
+        "XLF": "XLF_Close", 
+        "XLK": "XLK_Close",
+        "XLV": "XLV_Close", 
+        "XLY": "XLY_Close"
     }, inplace=True)
 
     return etf_data
