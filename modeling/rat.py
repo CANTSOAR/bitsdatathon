@@ -25,8 +25,10 @@ class RAT(nn.Module):
         self.output_dim = output_dim
 
         super(RAT, self).__init__()
+
         self.embedding = nn.Linear(input_dim, embed_dim)
         self.article_projection = nn.Linear(768, embed_dim)
+        
         self.transformer = nn.TransformerEncoder(
             nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads),
             num_layers=num_layers
@@ -214,7 +216,7 @@ class RAT(nn.Module):
                     col_data = output_np[0, :, i].reshape(-1, 1)
                     unscaled_output[0, :, i] = self.stock_scalers[i].inverse_transform(col_data).flatten()
             
-            return torch.tensor(unscaled_output)
+            return torch.tensor(col_data), torch.tensor(unscaled_output)
         else:
             raise ValueError(f"Input data must have at least {self.input_length} time steps")
 
@@ -383,67 +385,15 @@ class RAT(nn.Module):
             
         """
 
-        dict_income_statement_catcher = {
-            "Net Income": "Income",
-            "Total Income": "Income",
-            "Net Revenue": "Revenue",
-            "Total Revenue": "Revenue"
-        }
-
-        list_income_statement_metrics = [
-            "Income", 
-            "EBITDA", 
-            "Revenue"
-        ]
-
-        dict_balance_sheet_catcher = {
-            "Net Assets": "Assets",
-            "Total Assets": "Assets",
-            "Net Debt": "Debt",
-            "Total Debt": "Debt",
-            "Stockholders Equity": "SH_Equity",
-            "Stockholders' Equity": "SH_Equity"
-        }
-
-        list_balance_sheet_metrics = [
-            "Assets", 
-            "Debt", 
-            "SH_Equity"
-        ]
-
-        dict_cash_flow_catcher = {
-            "Free Cash Flow": "FCF",
-            "Operating Cash Flow": "OCF",
-            "Capital Expenditure": "CAPEX"
-        }
-
-        list_cash_flow_metrics = [
-            "FCF",
-            "OCF",
-            "CAPEX"
-        ]
-
-        list_stock_data = []
-
         for str_stock in list_stocks:
             ticker = yf.Ticker(str_stock)
 
             series_history = ticker.history(start = start_date, end = end_date)[["Close", "Volume"]]
             series_history.columns = ["Close", "Volume"]
 
-            df_income_statement = ticker.financials.rename(index = dict_income_statement_catcher).loc[list_income_statement_metrics]
-            df_balance_sheet = ticker.balance_sheet.rename(index = dict_balance_sheet_catcher).loc[list_balance_sheet_metrics]
-            df_cash_flow = ticker.cashflow.rename(index = dict_cash_flow_catcher).loc[list_cash_flow_metrics]
-
-            df_one_stock_data = pd.concat([df_income_statement, df_balance_sheet, df_cash_flow])
-            df_one_stock_data = df_one_stock_data.T.dropna().resample("D").ffill()
-
-            df_one_stock_data.index = pd.to_datetime(df_one_stock_data.index).tz_localize(None)
             series_history.index = pd.to_datetime(series_history.index).tz_localize(None)
 
-            list_stock_data.append(pd.concat([df_one_stock_data, series_history], axis = 1))
-
-        return pd.concat(list_stock_data, axis = 1, keys = list_stocks).dropna()
+        return series_history
     
     def add_stock_macro_data(self, micro_data, stock):
         self.stock = stock
