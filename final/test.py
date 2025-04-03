@@ -18,7 +18,7 @@ except Exception as e:
     print(e)
 
 # Load the pre-trained NER model
-nlp = spacy.load("en_core_web_trf")
+nlp = spacy.load("en_core_web_sm")
 
 # Extract stock tickers (companies) from the article
 def extract_tickers(article):
@@ -39,7 +39,7 @@ def fetch_articles_from_db():
     articles = []
     # Adjust this query if necessary based on how your data is stored
     cursor = collection.find({}, {"_id": 0, "body": 1})  # Assuming "article_text" is the field name for articles
-    for document in cursor[:10]:
+    for document in cursor[:1000]:
         articles.append(document["body"])
     return articles
 

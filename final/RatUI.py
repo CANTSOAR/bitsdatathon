@@ -3,8 +3,8 @@ import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
+import plotly.express as px
 from retrievalAugmentedTransformer import RAT
-from sentence_transformers import SentenceTransformer
 
 # === PAGE CONFIG ===
 st.set_page_config(page_title="Barclays RAT Predictor", page_icon="📈", layout="centered")
@@ -19,9 +19,7 @@ shadow = "0px 2px 15px rgba(0,0,0,0.3)"
 # === CUSTOM CSS ===
 st.markdown(f"""
     <style>
-        body {{
-            background-color: {bg_color};
-        }}
+        body {{ background-color: {bg_color}; }}
         .main {{
             background-color: {card_color};
             padding: 2rem 3rem;
@@ -46,19 +44,12 @@ st.markdown(f"""
             padding: 0.6em 1.5em;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
         }}
-        .stButton button:hover {{
-            background-color: #222222 !important;
-        }}
-        .block-container {{
-            padding-top: 1rem;
-        }}
+        .stButton button:hover {{ background-color: #222222 !important; }}
+        .block-container {{ padding-top: 1rem; }}
     </style>
 """, unsafe_allow_html=True)
 
-# === LOAD EMBEDDING MODEL ===
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
-
-# === BARCLAYS + BITS LOGOS SIDE-BY-SIDE (shifted right) ===
+# === BARCLAYS + BITS LOGOS ===
 try:
     col1, col2, col3 = st.columns([0.7, 2.3, .1])
     with col2:
@@ -86,43 +77,48 @@ start_date = st.date_input("Start Date", pd.to_datetime("2024-01-01"))
 end_date = st.date_input("End Date", pd.to_datetime("2025-01-01"))
 
 # === PREDICTION LOGIC ===
-if st.button("Predict"):
-    st.markdown(f"<h4 style='color:{text_color}'>Running prediction for {ticker}...</h4>", unsafe_allow_html=True)
+if st.button("Predict"): 
+    st.write("Fetching stock data...")
 
-    try:
-        model = RAT(input_dim=10, embed_dim=64, num_heads=4, num_layers=2, output_dim=1)
-        raw_data = model.get_data(ticker)
-        combined_data = raw_data.values.astype('float32')
+    # Initialize RAT model
+    model = RAT(stock=ticker, input_dim=22, embed_dim=64, output_dim=1, output_length=15)
 
-        input_len = 30
-        output_len = 7
-        X, y = model.format_data_combined(combined_data, input_len, output_len)
+    # Get stock + macroeconomic data as combined DataFrame
+    micro = model.get_stock_micro_data([ticker])
+    data = model.add_stock_macro_data(micro, ticker)
 
-        with st.spinner("Training model..."):
-            model.train_model(epochs=30, batch_size=16, X=X, y=y)
+    # Separate stock price/volume from other features
+    stock_features = data[['Close', 'Volume']].values
+    other_features = data.drop(['Close', 'Volume'], axis=1).values.astype("float32")
 
-        with st.spinner("Generating prediction..."):
-            prediction = model.predict(X[-1].unsqueeze(0))
-            pred_array = prediction.squeeze().numpy()
+    input_length = 30
+    output_length = 15
 
-        st.subheader("Predicted Stock Prices")
-        st.line_chart(pred_array)
+    X, y = model.format_data_separate(stock_features, other_features, input_length, output_length)
 
-        # === EXPLAINABILITY CHART ===
-        st.subheader("Why Did the Model Predict This?")
-        recent_input = X[-1].squeeze().numpy()
-        fig, ax = plt.subplots(figsize=(10, 4))
-        ax.plot(recent_input[:, 0], label="Closing Price (Input)", color="#ffffff")
-        if recent_input.shape[1] > 1:
-            ax.plot(recent_input[:, 1], label="Volume (Input)", color="#a0c4ff")
-        ax.set_title("Recent Trends Influencing the Prediction", color=text_color)
-        ax.set_xlabel("Days")
-        ax.set_ylabel("Value")
-        ax.legend()
-        st.pyplot(fig)
+    model.query_articles(None, None, ticker)
 
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+    with st.spinner("Training model..."):
+        model.train_model(epochs=50, batch_size=16, X=X, y=y)
+
+    with st.spinner("Generating prediction..."):
+        prediction = model.predict(X[-1].unsqueeze(0))
+        pred_array = prediction.squeeze().numpy()
+
+    st.subheader("Predicted Stock Prices")
+    st.line_chart(pred_array)
+
+    st.subheader("Why Did the Model Predict This?")
+    recent_input = X[-1].squeeze().numpy()
+    fig, ax = plt.subplots(figsize=(10, 4))
+    ax.plot(recent_input[:, 0], label="Closing Price (Input)", color="#ffffff")
+    if recent_input.shape[1] > 1:
+        ax.plot(recent_input[:, 1], label="Volume (Input)", color="#a0c4ff")
+    ax.set_title("Recent Trends Influencing the Prediction", color=text_color)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Value")
+    ax.legend()
+    st.pyplot(fig)
 
 # === FOOTER ===
 st.markdown("---")
