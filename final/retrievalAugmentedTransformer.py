@@ -9,16 +9,18 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import GradientBoostingRegressor
+
 
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
 client = MongoClient(uri)
 db = client["stocks_db"]
 collection = db["mi_data"]
 
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embedding_model = SentenceTransformer("ProsusAI/finbert")
 
 class RAT(nn.Module):
-    def __init__(self, stock, input_dim, embed_dim = 64, num_heads = 2, num_layers = 2, output_dim = 1):
+    def __init__(self, stock, input_dim, embed_dim = 64, num_heads = 2, num_layers = 2, output_dim = 2):
         self.stock = stock
 
         self.input_dim = input_dim
@@ -46,7 +48,7 @@ class RAT(nn.Module):
         x2 = x2.unsqueeze(0).expand(x1.shape[0], -1, -1)
 
         x = torch.cat([x1, x2], dim=1)
-        encoded = self.transformer(x)  # [batch_size, seq_len, embed_dim]
+        encoded = self.transformer(x1)  # [batch_size, seq_len, embed_dim]
         
         # Get context vector (last hidden state)
         context = encoded[:, -1].unsqueeze(1)  # [batch_size, 1, embed_dim]
@@ -179,7 +181,7 @@ class RAT(nn.Module):
                     col_data = output_np[0, :, i].reshape(-1, 1)
                     unscaled_output[0, :, i] = self.stock_scalers[i].inverse_transform(col_data).flatten()
             
-            return torch.tensor(col_data), torch.tensor(unscaled_output)
+            return torch.tensor(output_np), torch.tensor(unscaled_output)
         else:
             raise ValueError(f"Input data must have at least {self.input_length} time steps")
         
@@ -219,14 +221,12 @@ class RAT(nn.Module):
         
 
 class Data_Processing():
-    def __init__(self, model: RAT):
-        self.model = model
 
-    def format_data_separate(self, stock_data, financial_data, input_length, output_length):
+    def format_data_separate(self, stock_data, financial_data, model, input_length, output_length):
         self.stock_data = stock_data
 
-        self.stock_scalers = []
-        self.financial_scalers = []
+        model.stock_scalers = []
+        model.financial_scalers = []
         
         # Scale each column of stock data independently
         scaled_stock = np.zeros_like(stock_data)
@@ -235,7 +235,7 @@ class Data_Processing():
             # Reshape to 2D array for fit_transform
             col_data = stock_data.values[:, i].reshape(-1, 1)
             scaled_stock[:, i] = scaler.fit_transform(col_data).flatten()
-            self.stock_scalers.append(scaler)
+            model.stock_scalers.append(scaler)
         
         # Scale each column of financial data independently
         scaled_financial = np.zeros_like(financial_data)
@@ -243,7 +243,7 @@ class Data_Processing():
             scaler = StandardScaler()
             col_data = financial_data.values[:, i].reshape(-1, 1)
             scaled_financial[:, i] = scaler.fit_transform(col_data).flatten()
-            self.financial_scalers.append(scaler)
+            model.financial_scalers.append(scaler)
         
         # Convert back to tensors
         stock_data = torch.tensor(scaled_stock, dtype=torch.float32)
@@ -252,22 +252,22 @@ class Data_Processing():
         combined_data = torch.cat([stock_data, financial_data], dim=1)
         
         num_samples = len(combined_data) - input_length - output_length + 1
-        X = torch.zeros(num_samples, input_length, self.model.input_dim)
-        y = torch.zeros(num_samples, output_length, self.model.output_dim)
+        X = torch.zeros(num_samples, input_length, model.input_dim)
+        y = torch.zeros(num_samples, output_length, model.output_dim)
         
         for i in range(num_samples):
             X[i] = combined_data[i:i+input_length]
 
-            target_values = stock_data[i+input_length:i+input_length+output_length, :self.model.output_dim]
+            target_values = stock_data[i+input_length:i+input_length+output_length, :model.output_dim]
             y[i] = target_values
 
-        self.model.input_length = input_length
-        self.model.output_length = output_length
+        model.input_length = input_length
+        model.output_length = output_length
 
         return X, y
 
-    def format_data_combined(self, combined_data, input_length, output_length):
-        return self.format_data_separate(combined_data[["Close", "Volume"]], combined_data.drop(["Close", "Volume"], axis = 1), input_length, output_length)
+    def format_data_combined(self, combined_data, model, input_length, output_length):
+        return self.format_data_separate(combined_data[["Close", "Volume"]], combined_data.drop(["Close", "Volume"], axis = 1), model, input_length, output_length)
     
     def get_data(self, stock, start_date, end_date):
         micro_data = self.get_stock_micro_data([stock], start_date, end_date)
@@ -397,3 +397,38 @@ class Data_Processing():
         enriched_data = self.calculate_technical_indicators(enriched_data)
 
         return enriched_data
+    
+    def preprocess_features(self, combined_data):
+        df_X = combined_data.drop("Close", axis = 1)  # Replace 'target_column' with your target column
+        df_y = combined_data["Close"]
+
+        # Scale features
+        scaler = StandardScaler()
+        df_X = scaler.fit_transform(df_X)
+
+        # Train the model
+        model = GradientBoostingRegressor(n_estimators = 1000,
+                                            max_depth=3,
+                                            learning_rate=0.1,
+                                            n_iter_no_change=10)
+        model.fit(df_X, df_y)
+
+        list_importances = model.feature_importances_
+        list_feature_names = np.array(combined_data.columns)
+
+        # Sort features by importance
+        list_sorted_idx = np.argsort(list_importances)[::-1]  # Sort in descending order
+        list_sorted_importances = list_importances[list_sorted_idx]
+        list_sorted_features = list_feature_names[list_sorted_idx]
+
+        # Compute cumulative sum of importance
+        cumulative_importance = np.cumsum(list_sorted_importances)
+
+        # Select the top features that contribute to 90% of the total importance
+        num_features = np.argmax(cumulative_importance >= .9) + 1
+        to_keep = set(list_sorted_features[:num_features])
+
+        to_keep.add("Close")
+        to_keep.add("Volume")
+
+        return combined_data[list(to_keep)]
