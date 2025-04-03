@@ -9,36 +9,35 @@ import pandas as pd
 import yfinance as yf
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import GradientBoostingRegressor
+import pickle
+
 
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
 client = MongoClient(uri)
 db = client["stocks_db"]
 collection = db["mi_data"]
 
-embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
+embedding_model = SentenceTransformer("ProsusAI/finbert")
 
 class RAT(nn.Module):
-    def __init__(self, stock, input_dim, embed_dim = 64, num_heads = 2, num_layers = 2, output_dim = 1):
+    def __init__(self, stock, input_dim, embed_dim=64, output_dim=2, output_length=5):
+        super(RAT, self).__init__()
+        
         self.stock = stock
-
         self.input_dim = input_dim
         self.output_dim = output_dim
-
-        super(RAT, self).__init__()
-
+        self.output_length = output_length
+        
         self.embedding = nn.Linear(input_dim, embed_dim)
         self.article_projection = nn.Linear(768, embed_dim)
         
-        self.transformer = nn.TransformerEncoder(
-            nn.TransformerEncoderLayer(d_model=embed_dim, nhead=num_heads),
-            num_layers=num_layers
-        )
-
-        self.decoder = nn.GRU(embed_dim, embed_dim, batch_first=True)
+        # Single LSTM layer
+        self.lstm = nn.LSTM(embed_dim, embed_dim, batch_first=True)
         self.fc = nn.Linear(embed_dim, output_dim)
-
+        
     def forward(self, x):
-        # Encoder
+        # Encode input
         x1 = self.embedding(x)  # [batch_size, seq_len, embed_dim]
 
         article_embeds = self.query_articles(self.stock)
@@ -46,31 +45,17 @@ class RAT(nn.Module):
         x2 = x2.unsqueeze(0).expand(x1.shape[0], -1, -1)
 
         x = torch.cat([x1, x2], dim=1)
-        encoded = self.transformer(x)  # [batch_size, seq_len, embed_dim]
+        encoded, _ = self.lstm(x)  # [batch_size, seq_len, embed_dim]
         
-        # Get context vector (last hidden state)
-        context = encoded[:, -1].unsqueeze(1)  # [batch_size, 1, embed_dim]
-        
-        # Initialize decoder input
-        decoder_input = context.repeat(1, self.output_length, 1)  # [batch_size, output_seq_len, embed_dim]
-        
-        # Decoder
-        outputs, _ = self.decoder(decoder_input)  # [batch_size, output_seq_len, embed_dim]
-        predictions = self.fc(outputs)  # [batch_size, output_seq_len, output_dim]
+        # Predict for each time step in output_length
+        decoded = encoded[:, -self.output_length:, :]
+        predictions = self.fc(decoded)  # [batch_size, output_length, output_dim]
         
         return predictions
-
-    def train_model(self, X, y, epochs = 100, batch_size = 32, patience=15, validation_split=0.1):
+    
+    def train_model(self, X, y, epochs=100, batch_size=32, patience=15, validation_split=0.1):
         """
         Train the RAT model with early stopping and faster convergence techniques
-        
-        Args:
-            epochs: Maximum number of training epochs
-            batch_size: Training batch size
-            X: Input tensor of shape [samples, seq_len, features]
-            y: Target tensor of shape [samples, output_seq_len, output_features]
-            patience: Number of epochs to wait for improvement before early stopping
-            validation_split: Fraction of data to use for validation
         """
         # Split data into train and validation sets
         val_size = int(len(X) * validation_split)
@@ -92,97 +77,71 @@ class RAT(nn.Module):
         wait = 0
         best_model = None
         
-        # Training loop
         for epoch in range(epochs):
-            # Training phase
             self.train()
             train_loss = 0
             for X_batch, y_batch in train_dataloader:
                 optimizer.zero_grad()
                 output = self(X_batch)
-                
-                # Reshape if needed based on your model output
-                if output.shape != y_batch.shape:
-                    output = output.view(y_batch.shape)
-                    
                 loss = criterion(output, y_batch)
-                loss.backward(retain_graph=True)
-                
-                # Clip gradients
+                loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
-                
                 optimizer.step()
                 train_loss += loss.item()
-                
+            
             avg_train_loss = train_loss / len(train_dataloader)
             
-            # Validation phase
             self.eval()
             val_loss = 0
             with torch.no_grad():
                 for X_batch, y_batch in val_dataloader:
                     output = self(X_batch)
-                    
-                    # Reshape if needed
-                    if output.shape != y_batch.shape:
-                        output = output.view(y_batch.shape)
-                        
                     loss = criterion(output, y_batch)
                     val_loss += loss.item()
-                    
-            avg_val_loss = val_loss / len(val_dataloader)
             
-            # Update learning rate based on validation loss
+            avg_val_loss = val_loss / len(val_dataloader)
             scheduler.step(avg_val_loss)
             
-            # Print progress
             if (epoch+1) % 5 == 0 or epoch == 0:
                 print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.6f}, Val Loss: {avg_val_loss:.6f}")
             
-            # Early stopping check
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 wait = 0
-                # Save best model
                 best_model = {k: v.cpu().detach().clone() for k, v in self.state_dict().items()}
             elif avg_val_loss > best_val_loss * 1.2:
                 wait += 1
                 if wait >= patience:
                     print(f"Early stopping at epoch {epoch+1}")
-                    # Restore best model
                     self.load_state_dict(best_model)
                     return best_val_loss
         
-        # Restore best model at the end of training
         if best_model is not None:
             self.load_state_dict(best_model)
-            
-        return best_val_loss
-
-    def predict(self, new_data):
         
-        # Format for model input (assuming we need a sequence of input_length)
+        return best_val_loss
+    
+    def predict(self, new_data):
+        """
+        Make predictions with the trained RAT model.
+        """
         if len(new_data) >= self.input_length:
-            #model_input = new_data[-self.input_length:].unsqueeze(0)  # Add batch dimension
-            model_input = new_data
-            
+            model_input = new_data  # Assume proper formatting already
             with torch.no_grad():
                 output = self(model_input)  # [1, output_length, output_dim]
             
-            # Inverse transform the predictions
             output_np = output.numpy()
             unscaled_output = np.zeros_like(output_np)
             
             for i in range(output_np.shape[-1]):
                 if i < len(self.stock_scalers):
-                    # Reshape for inverse_transform
                     col_data = output_np[0, :, i].reshape(-1, 1)
                     unscaled_output[0, :, i] = self.stock_scalers[i].inverse_transform(col_data).flatten()
             
-            return torch.tensor(col_data), torch.tensor(unscaled_output)
+            return torch.tensor(output_np), torch.tensor(unscaled_output)
         else:
             raise ValueError(f"Input data must have at least {self.input_length} time steps")
-        
+
     def query_articles(self, stock_name, top_k = 5, show = False):
         query_embedding = embedding_model.encode(f"Stock News About {stock_name}").tolist()
 
@@ -216,17 +175,25 @@ class RAT(nn.Module):
             return string
 
         return torch.tensor(embeddings)
+    
+    def load_model(self):
+        self.load_state_dict(torch.load(f"saved_models/{self.stock}.pth"))
+        self.eval()
+        print("model loaded!")
+
+    def save_model(self):
+        torch.save(self.state_dict(), f"saved_models/{self.stock}.pth")
+        print("model saved!")
         
 
 class Data_Processing():
-    def __init__(self, model: RAT):
+
+    def format_data_separate(self, stock_data, financial_data, model, input_length, output_length):
+        self.stock_data = stock_data
         self.model = model
 
-    def format_data_separate(self, stock_data, financial_data, input_length, output_length):
-        self.stock_data = stock_data
-
-        self.stock_scalers = []
-        self.financial_scalers = []
+        model.stock_scalers = []
+        model.financial_scalers = []
         
         # Scale each column of stock data independently
         scaled_stock = np.zeros_like(stock_data)
@@ -235,7 +202,7 @@ class Data_Processing():
             # Reshape to 2D array for fit_transform
             col_data = stock_data.values[:, i].reshape(-1, 1)
             scaled_stock[:, i] = scaler.fit_transform(col_data).flatten()
-            self.stock_scalers.append(scaler)
+            model.stock_scalers.append(scaler)
         
         # Scale each column of financial data independently
         scaled_financial = np.zeros_like(financial_data)
@@ -243,7 +210,7 @@ class Data_Processing():
             scaler = StandardScaler()
             col_data = financial_data.values[:, i].reshape(-1, 1)
             scaled_financial[:, i] = scaler.fit_transform(col_data).flatten()
-            self.financial_scalers.append(scaler)
+            model.financial_scalers.append(scaler)
         
         # Convert back to tensors
         stock_data = torch.tensor(scaled_stock, dtype=torch.float32)
@@ -252,22 +219,22 @@ class Data_Processing():
         combined_data = torch.cat([stock_data, financial_data], dim=1)
         
         num_samples = len(combined_data) - input_length - output_length + 1
-        X = torch.zeros(num_samples, input_length, self.model.input_dim)
-        y = torch.zeros(num_samples, output_length, self.model.output_dim)
+        X = torch.zeros(num_samples, input_length, model.input_dim)
+        y = torch.zeros(num_samples, output_length, model.output_dim)
         
         for i in range(num_samples):
             X[i] = combined_data[i:i+input_length]
 
-            target_values = stock_data[i+input_length:i+input_length+output_length, :self.model.output_dim]
+            target_values = stock_data[i+input_length:i+input_length+output_length, :model.output_dim]
             y[i] = target_values
 
-        self.model.input_length = input_length
-        self.model.output_length = output_length
+        model.input_length = input_length
+        model.output_length = output_length
 
         return X, y
 
-    def format_data_combined(self, combined_data, input_length, output_length):
-        return self.format_data_separate(combined_data[["Close", "Volume"]], combined_data.drop(["Close", "Volume"], axis = 1), input_length, output_length)
+    def format_data_combined(self, combined_data, model, input_length, output_length):
+        return self.format_data_separate(combined_data[["Close", "Volume"]], combined_data.drop(["Close", "Volume"], axis = 1), model, input_length, output_length)
     
     def get_data(self, stock, start_date, end_date):
         micro_data = self.get_stock_micro_data([stock], start_date, end_date)
@@ -397,3 +364,56 @@ class Data_Processing():
         enriched_data = self.calculate_technical_indicators(enriched_data)
 
         return enriched_data
+    
+    def preprocess_features(self, combined_data):
+        df_X = combined_data.drop("Close", axis = 1)  # Replace 'target_column' with your target column
+        df_y = combined_data["Close"]
+
+        # Scale features
+        scaler = StandardScaler()
+        df_X = scaler.fit_transform(df_X)
+
+        # Train the model
+        model = GradientBoostingRegressor(n_estimators = 1000,
+                                            max_depth=3,
+                                            learning_rate=0.1,
+                                            n_iter_no_change=10)
+        model.fit(df_X, df_y)
+
+        list_importances = model.feature_importances_
+        list_feature_names = np.array(combined_data.columns)
+
+        # Sort features by importance
+        list_sorted_idx = np.argsort(list_importances)[::-1]  # Sort in descending order
+        list_sorted_importances = list_importances[list_sorted_idx]
+        list_sorted_features = list_feature_names[list_sorted_idx]
+
+        # Compute cumulative sum of importance
+        cumulative_importance = np.cumsum(list_sorted_importances)
+
+        # Select the top features that contribute to 90% of the total importance
+        num_features = np.argmax(cumulative_importance >= .9) + 1
+        to_keep = set(list_sorted_features[:num_features])
+
+        to_keep.add("Close")
+        to_keep.add("Volume")
+
+        self.to_keep = list(to_keep)
+
+        return combined_data[self.to_keep]
+    
+    def save_features(self, stock):
+
+        with open(f"saved_features/{stock}", 'wb') as f:
+            pickle.dump(self.to_keep, f)
+        print(f"Features saved to saved_features/{stock}")
+
+    def load_features(sel, stock, combined_data):
+        try:
+            with open(f"saved_features/{stock}", 'rb') as f:
+                feature_list = pickle.load(f)
+            print(f"Features loaded from saved_features/{stock}")
+        except FileNotFoundError:
+            print(f"Error: The file saved_features/{stock} does not exist.")
+
+        return combined_data[feature_list]
