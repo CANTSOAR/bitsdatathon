@@ -15,7 +15,7 @@ client = MongoClient(uri)
 db = client["stocks_db"]
 collection = db["mi_data"]
 
-embedding_model = SentenceTransformer("ProsusAI/finbert")
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 class RAT(nn.Module):
     def __init__(self, input_dim, embed_dim, num_heads, num_layers, output_dim):
