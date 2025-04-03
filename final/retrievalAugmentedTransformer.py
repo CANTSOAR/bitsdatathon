@@ -166,7 +166,8 @@ class RAT(nn.Module):
 
         results = list(collection.aggregate(pipeline))
         embeddings = [doc['embedding'] for doc in results]
-        stock_tags = []
+        stock_tags = [doc["tickers"][0] for doc in results]
+        dates = True
         self.saved_embeds = torch.tensor(embeddings)
         self.saved_x2 = self.article_projection(self.saved_embeds)
 
