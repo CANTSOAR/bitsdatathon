@@ -30,7 +30,5 @@ To view the source version of this press release, please visit https://www.newsf
 ]
 # Assuming articles are stored in a list `articles`
 # Split the dataset into smaller chunks for parallel processing
-chunks = [articles[i:i + 1000] for i in range(0, len(articles), 1000)]
-tickers = []
-for chunk in chunks:
-    tickers.extend(process_articles(chunk))
+for article in articles:
+    print(extract_tickers(article))
