@@ -3,22 +3,18 @@ from pymongo import MongoClient
 import yfinance as yf
 import pandas as pd
 
-# ✅ MongoDB Connection
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
 client = MongoClient(uri)
 db = client["stocks_db"]
 stock_collection = db["stock_data"]
 
-# ✅ Macro Indicators CSV Path
 macro_csv_path = "macro_data.csv"  # Replace with actual path
 
-# ✅ List of ETF/Index and Sector Tickers to Fetch
 etf_tickers = [
     "IEF", "LQD", "QQQ", "SPY", "SPYG", "SPYV", "TLT", "^VIX",
     "XLE", "XLF", "XLK", "XLV", "XLY"
 ]
 
-# ✅ Read macro indicators from CSV (updated selection)
 def read_macro_data(csv_path):
     macro_data = pd.read_csv(csv_path, parse_dates=["Date"], index_col="Date")
 
@@ -32,7 +28,6 @@ def read_macro_data(csv_path):
 
     return macro_data
 
-# ✅ Fetch ETF/Index and Sector Data using yfinance
 def fetch_etf_data(tickers, start_date, end_date):
     etf_data = yf.download(tickers, start=start_date, end=end_date)["Adj Close"]
 
@@ -59,28 +54,6 @@ def fetch_etf_data(tickers, start_date, end_date):
 
     return etf_data
 
-# ✅ Fetch stock data from MongoDB or fallback to yfinance
-def fetch_stock_data(ticker, start_date, end_date):
-    query = {"ticker": ticker, "date": {"$gte": start_date, "$lte": end_date}}
-    stock_data_cursor = stock_collection.find(query)
-
-    # Convert MongoDB documents to DataFrame
-    stock_data_list = list(stock_data_cursor)
-    if stock_data_list:
-        data = pd.DataFrame(stock_data_list)
-        data.set_index("date", inplace=True)
-        data.index = pd.to_datetime(data.index)
-        print(f"✅ Data found in MongoDB for {ticker}")
-    else:
-        print(f"⚠️ No data found in MongoDB. Fetching data from Yahoo Finance for {ticker}.")
-        data = yf.download(ticker, start=start_date, end=end_date)
-
-    if "Close" not in data.columns:
-        raise ValueError("Missing 'Close' data. Please check your source.")
-
-    return data
-
-# ✅ Calculate Technical Indicators
 def calculate_technical_indicators(data):
     # Simple Moving Average (SMA)
     data["SMA_20"] = data["Close"].rolling(window=20).mean()
@@ -117,7 +90,6 @@ def calculate_technical_indicators(data):
     data = data.dropna()
     return data
 
-# ✅ Merge stock, macro, ETF/sector, and technical data
 def merge_all_data(stock_data, macro_data, etf_data):
     # Merge stock and macro data
     enriched_data = stock_data.merge(macro_data, left_index=True, right_index=True, how="inner")
@@ -130,40 +102,6 @@ def merge_all_data(stock_data, macro_data, etf_data):
 
     return enriched_data
 
-# ✅ Store enriched data with macro, ETF/sector, and technical indicators in MongoDB
-def store_enriched_data(ticker, data):
-    enriched_data = data.reset_index().to_dict(orient="records")
-
-    for record in enriched_data:
-        record["ticker"] = ticker
-        record["date"] = record["Date"]
-        del record["Date"]
-
-    # Insert enriched data into MongoDB
-    enriched_collection = db["enriched_stock_data"]
-    enriched_collection.insert_many(enriched_data)
-    print(f"✅ Enriched data with macro, ETF/sector, and technical indicators stored successfully in MongoDB for {ticker}")
-
-# ✅ Main process to update stock data with macro, ETF/sector, and technical indicators
-def update_stock_data_with_all(ticker, start_date, end_date):
-    # Fetch stock data
-    stock_data = fetch_stock_data(ticker, start_date, end_date)
-
-    # Read macro data from CSV
-    macro_data = read_macro_data(macro_csv_path)
-
-    # Fetch ETF/Index and Sector data from yfinance
-    etf_data = fetch_etf_data(etf_tickers, start_date, end_date)
-
-    # Merge all data
-    enriched_data = merge_all_data(stock_data, macro_data, etf_data)
-
-    # Store enriched data in MongoDB
-    store_enriched_data(ticker, enriched_data)
-
-# 🔥 Run the process for a stock
 ticker = "AAPL"  # Change to your desired stock
 start_date = "2024-01-01"
 end_date = "2024-03-01"
-
-update_stock_data_with_all(ticker, start_date, end_date)
