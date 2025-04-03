@@ -481,7 +481,7 @@ def fetch_articles_from_db():
     articles = []
     # Adjust this query if necessary based on how your data is stored
     cursor = collection.find({}, {"_id": 0, "body": 1})  # Assuming "article_text" is the field name for articles
-    for document in cursor[:10]:
+    for document in cursor:
         articles.append(document["body"])
     return articles
 
@@ -523,10 +523,11 @@ def update_db_with_tickers(articles, tickers):
 # Process articles and update the database
 def process_and_update_db():
     print("starting")
-    articles = fetch_articles_from_db()  # Fetch articles from MongoDB
-    for x in range(len(articles) // 1000 + 1):
-        tickers = process_articles(articles[x * 1000: (x + 1) * 1000])  # Extract tickers from articles
-        update_db_with_tickers(articles[x * 1000: (x + 1) * 1000], tickers)  # Update the documents with filtered tickers
+    articles = fetch_articles_from_db()[:5]  # Fetch articles from MongoDB
+    print("here")
+    tickers = process_articles(articles)  # Extract tickers from articles
+    print("there")
+    update_db_with_tickers(articles, tickers)  # Update the documents with filtered tickers
 
 # Run the process and update
 process_and_update_db()

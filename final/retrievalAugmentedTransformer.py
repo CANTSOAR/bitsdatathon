@@ -11,6 +11,7 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import GradientBoostingRegressor
 import pickle
+import os
 
 
 uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
@@ -177,12 +178,19 @@ class RAT(nn.Module):
         return torch.tensor(embeddings)
     
     def load_model(self):
-        self.load_state_dict(torch.load(f"saved_models/{self.stock}.pth"))
-        self.eval()
-        print("model loaded!")
+        try:
+            file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"saved_models/{self.stock}.pth")
+            self.load_state_dict(torch.load(file_path))
+            self.eval()
+            print("model loaded!")
+            return True
+        except Exception as e:
+            print(f"Error {e}")
+            return False
 
     def save_model(self):
-        torch.save(self.state_dict(), f"saved_models/{self.stock}.pth")
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"saved_models/{self.stock}.pth")
+        torch.save(self.state_dict(), file_path)
         print("model saved!")
         
 
@@ -275,7 +283,9 @@ class Data_Processing():
         return pd.merge(macro_data, micro_data, left_index=True, right_index=True, how="inner")
     
     def read_macro_data(self):
-        macro_data = pd.read_csv("../data/new_macro_data.csv", parse_dates=["Date"], index_col="Date")
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data/new_macro_data.csv")
+
+        macro_data = pd.read_csv(file_path, parse_dates=["Date"], index_col="Date")
 
         # Select only relevant columns
         macro_columns = [
@@ -402,18 +412,20 @@ class Data_Processing():
 
         return combined_data[self.to_keep]
     
-    def save_features(self, stock):
-
-        with open(f"saved_features/{stock}", 'wb') as f:
-            pickle.dump(self.to_keep, f)
+    def save_features(self, stock, kept_data):
+        file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"saved_features/{stock}")
+        with open(file_path, 'wb') as f:
+            pickle.dump(kept_data.columns, f)
         print(f"Features saved to saved_features/{stock}")
 
     def load_features(sel, stock, combined_data):
         try:
-            with open(f"saved_features/{stock}", 'rb') as f:
+            file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"saved_features/{stock}")
+            with open(file_path, 'rb') as f:
                 feature_list = pickle.load(f)
             print(f"Features loaded from saved_features/{stock}")
         except FileNotFoundError:
             print(f"Error: The file saved_features/{stock} does not exist.")
+            return combined_data
 
         return combined_data[feature_list]

@@ -4,7 +4,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from PIL import Image
 import plotly.express as px
-from retrievalAugmentedTransformer import RAT
+from retrievalAugmentedTransformer import RAT, Data_Processing
+import os
 
 # === PAGE CONFIG ===
 st.set_page_config(page_title="Barclays RAT Predictor", page_icon="📈", layout="centered")
@@ -55,9 +56,11 @@ try:
     with col2:
         c1, c2 = st.columns([1, 1])
         with c1:
-            st.image("Barclays-Bank-logo.png", width=120)
+            file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Barclays-Bank-logo.png")
+            st.image(file_path, width=120)
         with c2:
-            st.image("1_TExmZl1OGq1kivBg1ttY3w.png", width=120)
+            file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1_TExmZl1OGq1kivBg1ttY3w.png")
+            st.image(file_path, width=120)
 except Exception as e:
     st.warning("⚠️ One or both logos not found. Check filenames and paths.")
     st.exception(e)
@@ -81,39 +84,39 @@ if st.button("Predict"):
     st.write("Fetching stock data...")
 
     # Initialize RAT model
-    model = RAT(stock=ticker, input_dim=22, embed_dim=64, output_dim=1, output_length=15)
+    data_process = Data_Processing()
 
     # Get stock + macroeconomic data as combined DataFrame
-    micro = model.get_stock_micro_data([ticker])
-    data = model.add_stock_macro_data(micro, ticker)
+    data = data_process.get_data(ticker, start_date, end_date)
+    data = data_process.load_features(ticker, data)
+    data_process.save_features(ticker, data)
 
-    # Separate stock price/volume from other features
-    stock_features = data[['Close', 'Volume']].values
-    other_features = data.drop(['Close', 'Volume'], axis=1).values.astype("float32")
+    model = RAT(stock=ticker, input_dim=len(data.columns), embed_dim=64, output_dim=2, output_length=15)
 
     input_length = 30
     output_length = 15
 
-    X, y = model.format_data_separate(stock_features, other_features, input_length, output_length)
+    X, y = data_process.format_data_combined(data, model, input_length, output_length)
 
-    model.query_articles(None, None, ticker)
+    model.query_articles(ticker)
 
     with st.spinner("Training model..."):
-        model.train_model(epochs=50, batch_size=16, X=X, y=y)
+        if not model.load_model():
+            model.train_model(X, y)
+
+        model.save_model()
 
     with st.spinner("Generating prediction..."):
-        prediction = model.predict(X[-1].unsqueeze(0))
-        pred_array = prediction.squeeze().numpy()
+        prediction, _ = model.predict(X)
+        pred_array = prediction[:, 0, 0]
 
     st.subheader("Predicted Stock Prices")
     st.line_chart(pred_array)
 
-    st.subheader("Why Did the Model Predict This?")
-    recent_input = X[-1].squeeze().numpy()
+    recent_input = X[:, 0, 0]
     fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(recent_input[:, 0], label="Closing Price (Input)", color="#ffffff")
-    if recent_input.shape[1] > 1:
-        ax.plot(recent_input[:, 1], label="Volume (Input)", color="#a0c4ff")
+    ax.plot(recent_input, label="Closing Price (Input)", color="#ffffff")
+    #ax.plot(recent_input, label="Volume (Input)", color="#a0c4ff")
     ax.set_title("Recent Trends Influencing the Prediction", color=text_color)
     ax.set_xlabel("Days")
     ax.set_ylabel("Value")
