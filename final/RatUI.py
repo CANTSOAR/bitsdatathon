@@ -110,18 +110,10 @@ if st.button("Predict"):
         prediction, _ = model.predict(X)
         pred_array = prediction[:, 0, 0]
 
+    recent_input = X[:, 0, 0]
     st.subheader("Predicted Stock Prices")
     st.line_chart(pred_array)
-
-    recent_input = X[:, 0, 0]
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(recent_input, label="Closing Price (Input)", color="#ffffff")
-    #ax.plot(recent_input, label="Volume (Input)", color="#a0c4ff")
-    ax.set_title("Recent Trends Influencing the Prediction", color=text_color)
-    ax.set_xlabel("Days")
-    ax.set_ylabel("Value")
-    ax.legend()
-    st.pyplot(fig)
+    st.line_chart(recent_input)
 
 # === FOOTER ===
 st.markdown("---")

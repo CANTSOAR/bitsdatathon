@@ -21,6 +21,9 @@ collection = db["mi_data"]
 
 embedding_model = SentenceTransformer("ProsusAI/finbert")
 
+file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), f"../data/snp_lookup.csv")
+snp_lookup = pd.read_csv(file_path, parse_dates=["Date"], index_col="Date")
+
 class RAT(nn.Module):
     def __init__(self, stock, input_dim, embed_dim=64, output_dim=2, output_length=5):
         super(RAT, self).__init__()
@@ -163,6 +166,7 @@ class RAT(nn.Module):
 
         results = list(collection.aggregate(pipeline))
         embeddings = [doc['embedding'] for doc in results]
+        stock_tags = []
         self.saved_embeds = torch.tensor(embeddings)
         self.saved_x2 = self.article_projection(self.saved_embeds)
 
