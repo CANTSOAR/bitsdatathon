@@ -62,7 +62,7 @@ try:
             file_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "1_TExmZl1OGq1kivBg1ttY3w.png")
             st.image(file_path, width=120)
 except Exception as e:
-    st.warning("⚠️ One or both logos not found. Check filenames and paths.")
+    st.warning("\u26a0\ufe0f One or both logos not found. Check filenames and paths.")
     st.exception(e)
 
 # === HEADER CARD ===
@@ -111,9 +111,27 @@ if st.button("Predict"):
         pred_array = prediction[:, 0, 0]
 
     recent_input = X[:, 0, 0]
-    st.subheader("Predicted Stock Prices")
-    st.line_chart(pred_array)
-    st.line_chart(recent_input)
+
+    # === Unified Visualization with Labels ===
+    st.subheader("Prediction & Influencing Trends")
+    fig, ax = plt.subplots(figsize=(12, 5))
+
+    ax.plot(pred_array, label="Predicted Closing Prices", color="orange", linewidth=2)
+    ax.plot(recent_input, label="Recent Closing Prices", color="white")
+
+    ax.set_title("Predicted vs Recent Stock Trends", color=text_color)
+    ax.set_xlabel("Days")
+    ax.set_ylabel("Price")
+    ax.legend()
+    ax.grid(True)
+
+    fig.patch.set_facecolor(bg_color)
+    ax.set_facecolor(card_color)
+    ax.tick_params(colors="white")
+    for spine in ax.spines.values():
+        spine.set_edgecolor("white")
+
+    st.pyplot(fig)
 
 # === FOOTER ===
 st.markdown("---")
