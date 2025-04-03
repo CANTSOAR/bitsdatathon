@@ -1,11 +1,26 @@
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
 import spacy
-from spacy import displacy
 from concurrent.futures import ProcessPoolExecutor
-import os
+import time
+
+# MongoDB URI - Replace <password> with your actual password
+uri = "mongodb+srv://am3567:CwfUpOrjtGK1dtnt@main.guajv.mongodb.net/?retryWrites=true&w=majority&appName=Main"
+client = MongoClient(uri)
+db = client["stocks_db"]
+collection = db["mi_data"]
+
+# Send a ping to confirm a successful connection
+try:
+    client.admin.command('ping')
+    print("Pinged your deployment. You successfully connected to MongoDB!")
+except Exception as e:
+    print(e)
 
 # Load the pre-trained NER model
 nlp = spacy.load("en_core_web_trf")
 
+# Extract stock tickers (companies) from the article
 def extract_tickers(article):
     doc = nlp(article)
     tickers = [ent.text for ent in doc.ents if ent.label_ == "ORG"]
@@ -13,22 +28,26 @@ def extract_tickers(article):
 
 # Function to process articles in parallel
 def process_articles(articles):
-    with ProcessPoolExecutor() as executor:
-        results = list(executor.map(extract_tickers, articles))
+    results = []
+    for article in articles:
+        results.append(extract_tickers(article))
+        #print(results[-1])
     return results
 
+# Fetch articles from MongoDB collection (you can adjust the query as needed)
+def fetch_articles_from_db():
+    articles = []
+    # Adjust this query if necessary based on how your data is stored
+    cursor = collection.find({}, {"_id": 0, "body": 1})  # Assuming "article_text" is the field name for articles
+    for document in cursor[:10]:
+        articles.append(document["body"])
+    return articles
 
-articles = [
-"""New York, New York--(Newsfile Corp. - March 1, 2025) - WHY: Rosen Law Firm, a global investor rights law firm, continues to investigate potential securities claims on behalf of Western Asset Management Company (NASDAQ: LAOIX) (NASDAQ: WATFX) (NASDAQ: WACPX) mutual fund investors resulting from allegations that Western Asset may have issued materially misleading business information to the investing public.SO WHAT: If you purchased Western Asset mutual funds you may be entitled to compensation without payment of any out of pocket fees or costs through a contingency fee arrangement. The Rosen Law Firm is preparing a class action seeking recovery of investor losses.WHAT TO DO NEXT: To join the prospective class action, go to https://rosenlegal.com/submit-form/?case_id=31956 call Phillip Kim, Esq. toll-free at 866-767-3653 or email case@rosenlegal.com for information on the class action.WHAT IS THIS ABOUT: On November 25, 2024, the U.S. Securities and Exchange Commission issued a press release entitled "SEC Charges Ken Leech, Former Co-Chief Investment Officer of Western Asset Management Co., with Fraud." This press release stated that Leech had been charged with fraud "for engaging in a multi-year scheme to allocate favorable trades to certain portfolios, while allocating unfavorable trades to other portfolios, a practice known as cherry-picking."WHY ROSEN LAW: We encourage investors to select qualified counsel with a track record of success in leadership roles. Often, firms issuing notices do not have comparable experience, resources, or any meaningful peer recognition. Many of these firms do not actually litigate securities class actions.  Be wise in selecting counsel. The Rosen Law Firm represents investors throughout the globe, concentrating its practice in securities class actions and shareholder derivative litigation. Rosen Law Firm achieved the largest ever securities class action settlement against a Chinese Company at the time. Rosen Law Firm was Ranked No. 1 by ISS Securities Class Action Services for number of securities class action settlements in 2017. The firm has been ranked in the top 4 each year since 2013 and has recovered hundreds of millions of dollars for investors. In 2019 alone the firm secured over $438 million for investors. In 2020, founding partner Laurence Rosen was named by law360 as a Titan of Plaintiffs' Bar. Many of the firm's attorneys have been recognized by Lawdragon and Super Lawyers.
-Follow us for updates on LinkedIn: https://www.linkedin.com/company/the-rosen-law-firm, on Twitter: https://twitter.com/rosen_firm or on Facebook: https://www.facebook.com/rosenlawfirm/.Attorney Advertising. Prior results do not guarantee a similar outcome.-------------------------------Contact Information: Laurence Rosen, Esq. Phillip Kim, Esq. The Rosen Law Firm, P.A. 275 Madison Avenue, 40th Floor New York, NY 10016 Tel: (212) 686-1060 Toll Free: (866) 767-3653 Fax: (212) 202-3827 case@rosenlegal.com www.rosenlegal.com
-To view the source version of this press release, please visit https://www.newsfilecorp.com/release/242864""",
-"""In a report released on February 27, Nicolas Burgess from Ord Minnett maintained a Buy rating on VGI Partners Ltd. (RPL – Research Report), with a price target of A$4.30. The company’s shares closed yesterday at A$3.22.According to TipRanks, Burgess is a 4-star analyst with an average return of 9.7% and a 61.70% success rate.The word on The Street in general, suggests a Strong Buy analyst consensus rating for VGI Partners Ltd. with a A$4.57 average price target, implying a 41.93% upside from current levels. In a report released on February 26, Bell Potter also maintained a Buy rating on the stock with a A$5.00 price target.
-""",
-"""New York, New York--(Newsfile Corp. - March 1, 2025) - WHY: Rosen Law Firm, a global investor rights law firm, announces the filing of a class action lawsuit on behalf of purchasers of Game of Silks non-fungible tokens ("NFTs"), including Silks Avatar NFTs, Silks Horse NFTs, and Silks Land NFTs, and who were damaged thereby. A class action lawsuit has already been filed. If you wish to serve as lead plaintiff, you must move the Court no later than April 25, 2025.SO WHAT: If you purchased Game of Silks NFTs you may be entitled to compensation without payment of any out of pocket fees or costs through a contingency fee arrangement.WHAT TO DO NEXT: To join the Game of Silks class action, go to  https://rosenlegal.com/submit-form/?case_id=35918 or call Phillip Kim, Esq. at 866-767-3653 or email case@rosenlegal.com for more information. A class action lawsuit has already been filed. If you wish to serve as lead plaintiff, you must move the Court no later than April 25, 2025. A lead plaintiff is a representative party acting on behalf of other class members in directing the litigation.WHY ROSEN LAW: We encourage investors to select qualified counsel with a track record of success in leadership roles. Often, firms issuing notices do not have comparable experience, resources, or any meaningful peer recognition. Many of these firms do not actually litigate securities class actions, but are merely middlemen that refer clients or partner with law firms that actually litigate the cases. Be wise in selecting counsel. The Rosen Law Firm represents investors throughout the globe, concentrating its practice in securities class actions and shareholder derivative litigation. Rosen Law Firm achieved the largest ever securities class action settlement against a Chinese Company at the time. Rosen Law Firm was Ranked No. 1 by ISS Securities Class Action Services for number of securities class action settlements in 2017. The firm has been ranked in the top 4 each year since 2013 and has recovered hundreds of millions of dollars for investors. In 2019 alone the firm secured over $438 million for investors. In 2020, founding partner Laurence Rosen was named by law360 as a Titan of Plaintiffs' Bar. Many of the firm's attorneys have been recognized by Lawdragon and Super Lawyers.DETAILS OF THE CASE: According to the lawsuit, Game of Silks created a metaverse  game that brought real-life horse racing to the blockchain, allowing users to invest in virtual versions of real racehorses and earn money based on the real-world performance of those horses. The complaint further alleges that the Game of Silks NFTs, which were first sold beginning in April 2022, are securities as defined by the Securities Act of 1933 ("Securities Act"), and as such required registration statements, which were never filed with the U.S. Securities and Exchange Commission ("SEC"). Game of Silks violated the Securities Act by selling and soliciting the sale of unregistered Game of Silks NFT securities.
-		Further, the complaint also alleges that the defendants made material misstatements and omissions in connection with the sale of the Game of Silks NFTs, including failing to disclose critical financial information about Game of Silks' business model and sustainability.To join the Game of Silks class action, go to  https://rosenlegal.com/submit-form/?case_id=35918 or call Phillip Kim, Esq. toll-free at 866-767-3653 or email case@rosenlegal.com for information on the class action.No Class Has Been Certified. Until a class is certified, you are not represented by counsel unless you retain one. You may select counsel of your choice. You may also remain an absent class member and do nothing at this point. An investor's ability to share in any potential future recovery is not dependent upon serving as lead plaintiff.Follow us for updates on LinkedIn: https://www.linkedin.com/company/the-rosen-law-firm, on Twitter: https://twitter.com/rosen_firm or on Facebook: https://www.facebook.com/rosenlawfirm/.Attorney Advertising. Prior results do not guarantee a similar outcome.
-		-------------------------------Contact Information: Laurence Rosen, Esq. Phillip Kim, Esq. The Rosen Law Firm, P.A. 275 Madison Avenue, 40th Floor New York, NY 10016 Tel: (212) 686-1060 Toll Free: (866) 767-3653 Fax: (212) 202-3827 case@rosenlegal.com www.rosenlegal.comTo view the source version of this press release, please visit https://www.newsfilecorp.com/release/242948"""
-]
-# Assuming articles are stored in a list `articles`
-# Split the dataset into smaller chunks for parallel processing
-for article in articles:
-    print(extract_tickers(article))
+# Fetch articles from the database
+articles = fetch_articles_from_db()
+
+# Process the articles to extract tickers in parallel
+t1 = time.time()
+tickers = process_articles(articles)
+
+print(time.time() - t1)
