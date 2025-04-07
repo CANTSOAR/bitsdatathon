@@ -5,4 +5,4 @@ We built a stock prediction system that combines financial data and AI-powered n
 
 
 Summary Slides:
-https://docs.google.com/presentation/d/1qnnVitmtCmJGoUVuDy5kcDSZtWVkDsfRQBSPltV5-YY/edit?slide=id.g33bb8b08ce7_1_55#slide=id.g33bb8b08ce7_1_55
+https://docs.google.com/presentation/d/1_Irunnqc5JmI4UnlQV4uCyn5y5oxXly69zMXx3dptgg/edit?usp=sharing
